@@ -157,7 +157,7 @@ void Slash::onUse(Room *room, const CardUseStruct &card_use) const
                 else
                     delete thunder_slash;
             }
-            if (use.card->objectName() == "slash" && player->hasWeapon("fan")) {
+            if (use.card->objectName() == "slash" && player->hasWeapon("fan") && use.card->getSkillName() == "") {
                 FireSlash *fire_slash = new FireSlash(getSuit(), getNumber());
                 if (!isVirtualCard() || subcardsLength() > 0)
                     fire_slash->addSubcard(this);
@@ -721,6 +721,11 @@ public:
 
             room->setEmotion(player, "weapon/kylin_bow");
 
+            if (damage.to && (damage.to->hasSkill("wanwei") || damage.to->getMark("wanwei") != 0) && room->askForSkillInvoke(damage.to, "wanwei"))
+            {
+               room->broadcastSkillInvoke("wanwei");
+               room->askForDiscard(player, objectName(), 1, 1, false, true);
+            }
             QString horse_type = room->askForChoice(player, objectName(), horses.join("+"));
 
             if (horse_type == "dhorse")
@@ -806,9 +811,9 @@ void AmazingGrace::clearRestCards(Room *room) const
     delete dummy;
 }
 
-void AmazingGrace::doPreAction(Room *room, const CardUseStruct &) const
+void AmazingGrace::doPreAction(Room *room, const CardUseStruct &use) const
 {
-    QList<int> card_ids = room->getNCards(room->getAllPlayers().length());
+    QList<int> card_ids = room->getNCards(use.to.length());
     room->fillAG(card_ids);
     room->setTag("AmazingGrace", IntList2VariantList(card_ids));
 }
@@ -878,9 +883,10 @@ void SavageAssault::onEffect(const CardEffectStruct &effect) const
         QVariant::fromValue(effect),
         Card::MethodResponse,
         effect.from->isAlive() ? effect.from : NULL);
-    if (slash) {
+    if (slash && !slash->hasFlag("response_failed")) {
         room->setEmotion(effect.to, "killer");
     } else {
+        room->setCardFlag(slash, "-response_failed");
         room->damage(DamageStruct(this, effect.from->isAlive() ? effect.from : NULL, effect.to));
         room->getThread()->delay();
     }
@@ -903,7 +909,8 @@ void ArcheryAttack::onEffect(const CardEffectStruct &effect) const
         effect.from->isAlive() ? effect.from : NULL);
     if (jink && jink->getSkillName() != "eight_diagram" && jink->getSkillName() != "bazhen") {
         room->setEmotion(effect.to, "jink");
-    } else if (!jink) {
+    } else if (!jink || jink->hasFlag("response_failed")){
+        room->setCardFlag(jink, "-response_failed");
         room->damage(DamageStruct(this, effect.from->isAlive() ? effect.from : NULL, effect.to));
         room->getThread()->delay();
     }
@@ -1110,16 +1117,20 @@ void Duel::onEffect(const CardEffectStruct &effect) const
                 QVariant::fromValue(effect),
                 Card::MethodResponse,
                 second);
-            if (slash == NULL)
+            if (slash == NULL || slash->hasFlag("response_failed")){
+                room->setCardFlag(slash, "-response_failed");
                 break;
+            }
 
             slash = room->askForCard(first, "slash",
                 "@wushuang-slash-2:" + second->objectName(),
                 QVariant::fromValue(effect),
                 Card::MethodResponse,
                 second);
-            if (slash == NULL)
+            if (slash == NULL || slash->hasFlag("response_failed")){
+                room->setCardFlag(slash, "-response_failed");
                 break;
+            }
         } else {
             const Card *slash = room->askForCard(first,
                 "slash",
@@ -1127,8 +1138,10 @@ void Duel::onEffect(const CardEffectStruct &effect) const
                 QVariant::fromValue(effect),
                 Card::MethodResponse,
                 second);
-            if (slash == NULL)
+            if (slash == NULL || slash->hasFlag("response_failed")){
+                room->setCardFlag(slash, "-response_failed");
                 break;
+            }
         }
 
         qSwap(first, second);
@@ -1176,7 +1189,7 @@ void Snatch::onEffect(const CardEffectStruct &effect) const
     Room *room = effect.to->getRoom();
     bool using_2013 = (room->getMode() == "02_1v1" && Config.value("1v1/Rule", "2013").toString() != "Classical");
     QString flag = using_2013 ? "he" : "hej";
-    int card_id = room->askForCardChosen(effect.from, effect.to, flag, objectName());
+    int card_id = room->askForCardChosen(effect.from, effect.to, flag, objectName(), false, Card::MethodNone, QList<int>(), true);
     CardMoveReason reason(CardMoveReason::S_REASON_EXTRACTION, effect.from->objectName());
     room->obtainCard(effect.from, Sanguosha->getCard(card_id), reason, room->getCardPlace(card_id) != Player::PlaceHand);
 }
